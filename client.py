@@ -10,8 +10,12 @@ import asyncio
 import json
 from kivy.clock import Clock
 from functools import partial
+from ECDH import ECDH
+from YEA_Algorithm import ECB
 
 PORT = 9000
+SHARED_SECRET = None
+ecdh = ECDH()
 
 Builder.load_string("""
 <LoginScreen>:
@@ -132,6 +136,7 @@ Builder.load_string("""
 """)
 
 friends = ['isak', 'sana']
+shared_secret = {}
 
 class ClientProtocol(asyncio.Protocol):
     def __init__(self, manager, loop):
@@ -144,8 +149,20 @@ class ClientProtocol(asyncio.Protocol):
     def data_received(self, data):
         if data:
             message = data.decode('utf-8', 'ignore')
-            message = json.loads(message)
-            self.manager.chat_screen.chat_list.text += '{}: {}\n'.format(message['sender'], message['body'])
+            try:
+                message = json.loads(message)
+                if 'keys' in message:
+                    for username, pub_key in message['keys'].items():
+                        public_keys = pub_key.split("|")
+                        public_key = (int(public_keys[0]), int(public_keys[1]))
+                        if username != self.manager.username:
+                            shared_secret[username] = ecdh.scalar_multiplication(self.manager.private_key, public_key)
+                    print(' ', shared_secret)
+                elif 'body' in message:
+                    message['body'] = ECB(message['body'], shared_secret[message['sender']], True)
+                    self.manager.chat_screen.chat_list.text += '{}: {}\n'.format(message['sender'], message['body'])
+            except:
+                print('This data is not JSON:', data)
 
     def connection_lost(self, exc):
         print('The server closed the connection')
@@ -214,6 +231,7 @@ class RootWidget(ScreenManager):
         self.host = '127.0.0.1'
         self.is_stop = False
         self.loop = asyncio.get_event_loop()
+        self.private_key, self.public_key = ECDH().make_pair()
 
         if self.reconnect():
             self.clock_receive = Clock.schedule_interval(self.receive_msg, 1)
@@ -227,12 +245,13 @@ class RootWidget(ScreenManager):
             self.coro = self.loop.create_connection(lambda: ClientProtocol(self, self.loop),
                           self.host, PORT)
             self.transport, self.protocol = self.loop.run_until_complete(self.coro)
-
             self.last_connection_time = datetime.now()
-            self.introduction()
             print("I just reconnected the server.")
+            in_public_key = str(self.public_key[0]) + "|" + str(self.public_key[1])
+            self.introduction(in_public_key)
             return True
         except Exception as e:
+            print(e)
             self.current = 'login'
             try:
                 self.clock_receive.cancel()
@@ -246,9 +265,10 @@ class RootWidget(ScreenManager):
             self.transport.close()
             self.reconnect()
 
-    def introduction(self):
+    def introduction(self, public_key):
         message = {
-            'introduction': self.username
+            'sender': self.username,
+            'public_key': public_key
         }
         message = json.dumps(message)
         self.transport.write(message.encode('utf-8', 'ignore'))
@@ -257,10 +277,11 @@ class RootWidget(ScreenManager):
         if self.transport.is_closing():
             self.transport.close()
             self.reconnect()
+
         message = {
             'sender': self.username,
             'receiver': self.curr_friend,
-            'body': body
+            'body':  ECB(body, shared_secret[self.curr_friend])
         }
         message = json.dumps(message)
         self.transport.write(message.encode('utf-8', 'ignore'))

@@ -435,8 +435,3 @@ def main():
     print ("Ciphertext : {}".format(ciphertext))
     print ("---------------------------")
     print ("Plaintext : {}".format(d))
-
-import time
-from simple_aes_cipher import AESCipher, generate_secret_key
-if __name__ == "__main__":
-    main()

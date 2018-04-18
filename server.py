@@ -9,6 +9,7 @@ except:
 
 connected_transport = dict()
 usernames = dict()
+keys = dict()
 
 class ServerClientProtocol(asyncio.Protocol):
     def connection_made(self, transport):
@@ -22,8 +23,12 @@ class ServerClientProtocol(asyncio.Protocol):
         message = json.loads(data.decode())
         print('Data received: {!r}'.format(message))
 
-        if 'introduction' in message:
-            usernames[message['introduction']] = self.transport
+        if 'public_key' in message:
+            usernames[message['sender']] = self.transport
+            keys[message['sender']] = message['public_key']
+            print(keys)
+            for client in connected_transport.values():
+                client.write(json.dumps({'keys': keys}).encode('utf-8', 'ignore'))
         else:
             receiver = message['receiver']
             usernames[receiver].write(data)
