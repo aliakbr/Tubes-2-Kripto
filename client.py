@@ -12,6 +12,7 @@ from kivy.clock import Clock
 from functools import partial
 from ECDH import ECDH
 from YEA_Algorithm import ECB
+import time
 
 PORT = 9000
 SHARED_SECRET = None
@@ -135,6 +136,7 @@ Builder.load_string("""
                     root.send_msg()
 """)
 
+# PUB_KEY = (74684618736933007211749881090872706435669196890967152166356785091642784924714, 39445615981278302386891258730581181793088425243600112332352817663573916037037)
 friends = ['isak', 'sana']
 shared_secret = {}
 
@@ -156,12 +158,20 @@ class ClientProtocol(asyncio.Protocol):
                         public_keys = pub_key.split("|")
                         public_key = (int(public_keys[0]), int(public_keys[1]))
                         if username != self.manager.username:
+                            start = time.time()
+                            # public_key = PUB_KEY
                             shared_secret[username] = ecdh.scalar_multiplication(self.manager.private_key, public_key)
+                            duration = time.time() - start
+                            print ("Shared Secret computation : {}".format(duration))
                     print(' ', shared_secret)
                 elif 'body' in message:
+                    start = time.time()
                     message['body'] = ECB(message['body'], shared_secret[message['sender']], True)
+                    duration = time.time() - start
+                    print ("Block Cipher decryption computation : {}".format(duration))
                     self.manager.chat_screen.chat_list.text += '{}: {}\n'.format(message['sender'], message['body'])
-            except:
+            except Exception as e:
+                print(e)
                 print('This data is not JSON:', data)
 
     def connection_lost(self, exc):
@@ -231,7 +241,10 @@ class RootWidget(ScreenManager):
         self.host = '127.0.0.1'
         self.is_stop = False
         self.loop = asyncio.get_event_loop()
+        start = time.time()
         self.private_key, self.public_key = ECDH().make_pair()
+        duration= time.time() - start
+        print ("ECDH comp duration : {}".format(duration))
 
         if self.reconnect():
             self.clock_receive = Clock.schedule_interval(self.receive_msg, 1)
@@ -277,12 +290,14 @@ class RootWidget(ScreenManager):
         if self.transport.is_closing():
             self.transport.close()
             self.reconnect()
-
+        start = time.time()
         message = {
             'sender': self.username,
             'receiver': self.curr_friend,
             'body':  ECB(body, shared_secret[self.curr_friend])
         }
+        duration = time.time() - start
+        print ("Block cipher encryption duration : {}".format(duration))
         message = json.dumps(message)
         self.transport.write(message.encode('utf-8', 'ignore'))
 
